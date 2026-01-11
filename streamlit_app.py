@@ -2,6 +2,7 @@ import streamlit as st
 import cv2
 import tempfile
 import numpy as np
+import time          # ✅ TAMBAHKAN INI
 from ultralytics import YOLO
 from pathlib import Path
 
@@ -130,3 +131,4 @@ elif source_type == "Video":
             time.sleep(0.01)
 
         cap.release()
+
