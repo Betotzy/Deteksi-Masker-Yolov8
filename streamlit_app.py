@@ -5,6 +5,12 @@ import numpy as np
 from ultralytics import YOLO
 from pathlib import Path
 
+try:
+    import cv2
+    st.write("✅ OpenCV loaded:", cv2.__version__)
+except Exception as e:
+    st.error(e)
+    st.stop()
 # ===============================
 # Streamlit Config
 # ===============================
@@ -109,3 +115,4 @@ elif source_type == "Video":
             )
 
         cap.release()
+
