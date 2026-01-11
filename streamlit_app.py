@@ -2,15 +2,12 @@ import streamlit as st
 import cv2
 import tempfile
 import numpy as np
-from ultralytics import YOLO
-from pathlib import Path
+import av
+import time
 
-try:
-    import cv2
-    st.write("✅ OpenCV loaded:", cv2.__version__)
-except Exception as e:
-    st.error(e)
-    st.stop()
+from ultralytics import YOLO
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
+
 # ===============================
 # Streamlit Config
 # ===============================
@@ -19,7 +16,7 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🎯 YOLOv8 Image & Video Detection")
+st.title("🎯 YOLOv8 Image, Video & Realtime Webcam Detection")
 
 # ===============================
 # Load Model (cached)
@@ -34,6 +31,7 @@ model = load_model()
 # Sidebar
 # ===============================
 st.sidebar.header("⚙️ Settings")
+
 conf_threshold = st.sidebar.slider(
     "Confidence Threshold",
     min_value=0.1,
@@ -44,7 +42,7 @@ conf_threshold = st.sidebar.slider(
 
 source_type = st.sidebar.radio(
     "Select Input Type",
-    ["Image", "Video"]
+    ["Image", "Video", "Webcam"]
 )
 
 # ===============================
@@ -67,7 +65,8 @@ if source_type == "Image":
             results = model.predict(
                 source=image,
                 conf=conf_threshold,
-                device="cpu"
+                device="cpu",
+                verbose=False
             )
 
             annotated = results[0].plot()
@@ -76,7 +75,7 @@ if source_type == "Image":
             st.image(annotated, channels="BGR", use_container_width=True)
 
 # ===============================
-# VIDEO DETECTION (ANTI FREEZE)
+# VIDEO DETECTION + DOWNLOAD
 # ===============================
 elif source_type == "Video":
     uploaded_video = st.file_uploader(
@@ -85,34 +84,4 @@ elif source_type == "Video":
     )
 
     if uploaded_video is not None:
-        tfile = tempfile.NamedTemporaryFile(delete=False)
-        tfile.write(uploaded_video.read())
-        video_path = tfile.name
-
-        cap = cv2.VideoCapture(video_path)
-
-        stframe = st.empty()
-        stop_button = st.button("🛑 Stop")
-
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret or stop_button:
-                break
-
-            results = model.predict(
-                source=frame,
-                conf=conf_threshold,
-                device="cpu",
-                stream=False
-            )
-
-            annotated_frame = results[0].plot()
-
-            stframe.image(
-                annotated_frame,
-                channels="BGR",
-                use_container_width=True
-            )
-
-        cap.release()
-
+        tfile = tempfile.NamedTemporaryFile(
