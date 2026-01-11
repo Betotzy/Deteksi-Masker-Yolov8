@@ -73,6 +73,9 @@ if source_type == "Image":
 # ===============================
 # VIDEO DETECTION (ANTI FREEZE)
 # ===============================
+# ===============================
+# VIDEO DETECTION (ANTI FREEZE + DOWNLOAD)
+# ===============================
 elif source_type == "Video":
     uploaded_video = st.file_uploader(
         "Upload Video",
@@ -80,17 +83,29 @@ elif source_type == "Video":
     )
 
     if uploaded_video is not None:
-        tfile = tempfile.NamedTemporaryFile(delete=False)
+        tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
         tfile.write(uploaded_video.read())
         video_path = tfile.name
 
         cap = cv2.VideoCapture(video_path)
 
+        # Ambil properti video
+        width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps    = cap.get(cv2.CAP_PROP_FPS)
+        if fps == 0:
+            fps = 25
+
+        # Output video
+        output_path = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4").name
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        out = cv2.VideoWriter(output_path, fourcc, fps, (640, 640))
+
         stframe = st.empty()
         stop_button = st.button("🛑 Stop")
 
         frame_count = 0
-        DETECT_EVERY_N = 5   # 🔥 inferensi tiap 5 frame
+        DETECT_EVERY_N = 5
         last_annotated = None
 
         while cap.isOpened():
@@ -100,10 +115,10 @@ elif source_type == "Video":
 
             frame_count += 1
 
-            # Resize untuk performa
+            # Resize konsisten
             frame = cv2.resize(frame, (640, 640))
 
-            # 🔍 YOLO hanya tiap N frame
+            # YOLO tiap N frame
             if frame_count % DETECT_EVERY_N == 0:
                 results = model(
                     frame,
@@ -113,22 +128,35 @@ elif source_type == "Video":
                 )
                 last_annotated = results[0].plot()
 
-            # 🧠 Pakai hasil terakhir supaya video tetap jalan
-            if last_annotated is not None:
-                stframe.image(
-                    last_annotated,
-                    channels="BGR",
-                    use_container_width=True
-                )
-            else:
-                stframe.image(
-                    frame,
-                    channels="BGR",
-                    use_container_width=True
-                )
+            output_frame = last_annotated if last_annotated is not None else frame
 
-            # ⏱️ stabilkan UI
+            # tampilkan ke UI
+            stframe.image(
+                output_frame,
+                channels="BGR",
+                use_container_width=True
+            )
+
+            # tulis ke file video
+            out.write(output_frame)
+
             time.sleep(0.01)
 
         cap.release()
+        out.release()
+
+        st.success("✅ Video selesai diproses")
+
+        # ===============================
+        # DOWNLOAD BUTTON
+        # ===============================
+        with open(output_path, "rb") as f:
+            st.download_button(
+                label="⬇️ Download Output Video",
+                data=f,
+                file_name="output_detection.mp4",
+                mime="video/mp4"
+            )
+
+
 
