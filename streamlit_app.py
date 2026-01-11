@@ -2,15 +2,12 @@ import streamlit as st
 import cv2
 import tempfile
 import numpy as np
+import av
+
 from ultralytics import YOLO
 from pathlib import Path
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
 
-try:
-    import cv2
-    st.write("✅ OpenCV loaded:", cv2.__version__)
-except Exception as e:
-    st.error(e)
-    st.stop()
 # ===============================
 # Streamlit Config
 # ===============================
@@ -19,7 +16,16 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🎯 YOLOv8 Image & Video Detection")
+st.title("🎯 YOLOv8 Image, Video & Realtime Webcam Detection")
+
+# ===============================
+# OpenCV Check
+# ===============================
+try:
+    st.write("✅ OpenCV loaded:", cv2.__version__)
+except Exception as e:
+    st.error(e)
+    st.stop()
 
 # ===============================
 # Load Model (cached)
@@ -34,6 +40,7 @@ model = load_model()
 # Sidebar
 # ===============================
 st.sidebar.header("⚙️ Settings")
+
 conf_threshold = st.sidebar.slider(
     "Confidence Threshold",
     min_value=0.1,
@@ -44,7 +51,7 @@ conf_threshold = st.sidebar.slider(
 
 source_type = st.sidebar.radio(
     "Select Input Type",
-    ["Image", "Video"]
+    ["Image", "Video", "Webcam"]
 )
 
 # ===============================
@@ -57,7 +64,10 @@ if source_type == "Image":
     )
 
     if uploaded_image is not None:
-        file_bytes = np.asarray(bytearray(uploaded_image.read()), dtype=np.uint8)
+        file_bytes = np.asarray(
+            bytearray(uploaded_image.read()),
+            dtype=np.uint8
+        )
         image = cv2.imdecode(file_bytes, 1)
 
         st.subheader("Original Image")
@@ -73,7 +83,11 @@ if source_type == "Image":
             annotated = results[0].plot()
 
             st.subheader("Detection Result")
-            st.image(annotated, channels="BGR", use_container_width=True)
+            st.image(
+                annotated,
+                channels="BGR",
+                use_container_width=True
+            )
 
 # ===============================
 # VIDEO DETECTION (ANTI FREEZE)
@@ -116,3 +130,36 @@ elif source_type == "Video":
 
         cap.release()
 
+# ===============================
+# WEBCAM REALTIME DETECTION
+# ===============================
+elif source_type == "Webcam":
+    st.subheader("📷 Realtime Webcam Detection")
+
+    class YOLOVideoProcessor(VideoProcessorBase):
+        def recv(self, frame):
+            img = frame.to_ndarray(format="bgr24")
+
+            results = model.predict(
+                source=img,
+                conf=conf_threshold,
+                device="cpu",
+                stream=False
+            )
+
+            annotated = results[0].plot()
+
+            return av.VideoFrame.from_ndarray(
+                annotated,
+                format="bgr24"
+            )
+
+    webrtc_streamer(
+        key="yolo-webcam",
+        video_processor_factory=YOLOVideoProcessor,
+        media_stream_constraints={
+            "video": True,
+            "audio": False
+        },
+        async_processing=True
+    )
