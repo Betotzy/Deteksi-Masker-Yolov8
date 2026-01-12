@@ -1,16 +1,12 @@
 import streamlit as st
 import cv2
-import tempfile
 import numpy as np
-from ultralytics import YOLO
-from pathlib import Path
+import tempfile
+import av
 
-try:
-    import cv2
-    st.write("✅ OpenCV loaded:", cv2.__version__)
-except Exception as e:
-    st.error(e)
-    st.stop()
+from ultralytics import YOLO
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
+
 # ===============================
 # Streamlit Config
 # ===============================
@@ -19,7 +15,7 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🎯 YOLOv8 Image & Video Detection")
+st.title("🎯 YOLOv8 Detection App (Webcam Ready)")
 
 # ===============================
 # Load Model (cached)
@@ -34,85 +30,116 @@ model = load_model()
 # Sidebar
 # ===============================
 st.sidebar.header("⚙️ Settings")
+
 conf_threshold = st.sidebar.slider(
     "Confidence Threshold",
-    min_value=0.1,
-    max_value=1.0,
-    value=0.4,
-    step=0.05
+    0.1, 1.0, 0.4, 0.05
 )
 
 source_type = st.sidebar.radio(
     "Select Input Type",
-    ["Image", "Video"]
+    ["Image", "Video", "Webcam (Realtime)"]
 )
 
-# ===============================
+# =====================================================
 # IMAGE DETECTION
-# ===============================
+# =====================================================
 if source_type == "Image":
     uploaded_image = st.file_uploader(
         "Upload Image",
         type=["jpg", "jpeg", "png"]
     )
 
-    if uploaded_image is not None:
-        file_bytes = np.asarray(bytearray(uploaded_image.read()), dtype=np.uint8)
+    if uploaded_image:
+        file_bytes = np.asarray(
+            bytearray(uploaded_image.read()),
+            dtype=np.uint8
+        )
         image = cv2.imdecode(file_bytes, 1)
 
-        st.subheader("Original Image")
-        st.image(image, channels="BGR", use_container_width=True)
+        st.image(image, channels="BGR", caption="Original")
 
-        if st.button("🔍 Detect Objects"):
+        if st.button("🔍 Detect"):
             results = model.predict(
                 source=image,
                 conf=conf_threshold,
                 device="cpu"
             )
-
             annotated = results[0].plot()
+            st.image(annotated, channels="BGR", caption="Result")
 
-            st.subheader("Detection Result")
-            st.image(annotated, channels="BGR", use_container_width=True)
-
-# ===============================
-# VIDEO DETECTION (ANTI FREEZE)
-# ===============================
+# =====================================================
+# VIDEO DETECTION
+# =====================================================
 elif source_type == "Video":
     uploaded_video = st.file_uploader(
         "Upload Video",
         type=["mp4", "avi", "mov"]
     )
 
-    if uploaded_video is not None:
+    if uploaded_video:
         tfile = tempfile.NamedTemporaryFile(delete=False)
         tfile.write(uploaded_video.read())
-        video_path = tfile.name
 
-        cap = cv2.VideoCapture(video_path)
-
-        stframe = st.empty()
-        stop_button = st.button("🛑 Stop")
+        cap = cv2.VideoCapture(tfile.name)
+        frame_area = st.empty()
+        stop = st.button("🛑 Stop")
 
         while cap.isOpened():
             ret, frame = cap.read()
-            if not ret or stop_button:
+            if not ret or stop:
                 break
 
             results = model.predict(
                 source=frame,
                 conf=conf_threshold,
-                device="cpu",
-                stream=False
+                device="cpu"
             )
 
-            annotated_frame = results[0].plot()
-
-            stframe.image(
-                annotated_frame,
+            annotated = results[0].plot()
+            frame_area.image(
+                annotated,
                 channels="BGR",
                 use_container_width=True
             )
 
         cap.release()
 
+# =====================================================
+# REALTIME WEBCAM (WEBRTC)
+# =====================================================
+elif source_type == "Webcam (Realtime)":
+
+    st.warning("⚠️ Gunakan Chrome / Edge. Webcam berjalan via WebRTC.")
+
+    class YOLOWebcamProcessor(VideoProcessorBase):
+        def recv(self, frame):
+            img = frame.to_ndarray(format="bgr24")
+
+            results = model.predict(
+                source=img,
+                conf=conf_threshold,
+                device="cpu",
+                stream=False
+            )
+
+            annotated = results[0].plot()
+            return av.VideoFrame.from_ndarray(
+                annotated,
+                format="bgr24"
+            )
+
+    webrtc_streamer(
+        key="yolo-webcam",
+        video_processor_factory=YOLOWebcamProcessor,
+        rtc_configuration={
+            "iceServers": [
+                {"urls": ["stun:stun.l.google.com:19302"]},
+                {"urls": ["stun:stun1.l.google.com:19302"]},
+            ]
+        },
+        media_stream_constraints={
+            "video": True,
+            "audio": False
+        }
+    )
